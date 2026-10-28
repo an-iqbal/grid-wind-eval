@@ -1,56 +1,65 @@
-# Northstar Wind Desk
+# Northstar Wind Desk (UK Power Day-Ahead Evaluation)
 
-A small decision-support pilot for a UK day-ahead power desk. It compares national half-hourly wind outturn with the latest Elexon wind forecast available by a configurable decision gate. The January 2026 date range follows the challenge brief. The default gate is 11:00 UTC on D−1.
+An operational decision-support desk and backtesting engine designed for UK day-ahead power trading. The platform ingests half-hourly national wind generation outturns and day-ahead forecast snapshots from the Elexon Insights BMRS API, strictly enforcing point-in-time constraints to evaluate trading risk without look-ahead bias.
 
-## What is included
+---
 
-- `backend/app/main.py` — FastAPI endpoints for daily and monthly views, data refresh, and cache health.
-- `backend/app/elexon_client.py` — Elexon Insights API client and local JSON cache.
-- `backend/fetch_elexon.py` — command-line cache refresh entry point.
-- `backend/app/metrics.py` — timestamp normalization, point-in-time forecast selection, daily metrics, and month roll-up with coverage accounting.
-- `backend/data/` — mounted location for the downloaded Elexon records.
-- `frontend/src/App.tsx` — React dashboard, date and decision-gate controls, KPI cards, and forecast/outturn chart.
-- `frontend/src/styles.css` — responsive dark trading-desk interface.
-- `docker-compose.yml` — local two-container setup.
+## Live Deployments & Demo
 
-## Start the application
+- **Hosted Dashboard (Frontend)**: [https://grid-wind-eval.vercel.app](https://grid-wind-eval.vercel.app)
+- **Backend API Docs (Swagger)**: [https://grid-wind-backend.onrender.com/docs](https://grid-wind-backend.onrender.com/docs)
+- **Video Walkthrough (Loom/YouTube)**: [https://www.loom.com/share/7eae985190b84a698329506d32ffbdf9](https://www.loom.com/share/7eae985190b84a698329506d32ffbdf9)
 
-Install Docker Desktop, then run from this directory:
+---
 
-```bash
-docker compose up --build
-```
+## Commercial & Market Context
 
-Open <http://localhost:8080>. The FastAPI service and interactive API docs are available at <http://localhost:8000> and <http://localhost:8000/docs>.
+In the UK wholesale power market, market participants lock in their physical delivery nominations in the day-ahead auction (EPEX SPOT) before the market gate closes at **11:00 UTC on D−1** (the day prior to delivery). 
 
-The first run starts with an empty cache. Use **Sync Elexon** in the dashboard or call `POST http://localhost:8000/api/refresh` to retrieve and cache January 2026 records. To run the same ingestion script from the backend container, use `docker compose exec backend python fetch_elexon.py`. The sync requires internet access to Elexon. The dashboard intentionally shows an empty state before data is loaded; it does not invent sample observations.
+- **Imbalance Risk**: If actual wind outturn falls below physical nominations, the desk is short and must buy balancing volume at volatile Elexon System Buy Price (SBP) cash-out rates. If wind exceeds nominations, long volume is sold off at discounted System Sell Price (SSP).
+- **Point-in-Time Discipline**: Forecasts update continuously up until real-time gate closure. However, for a day-ahead contract locked at 11:00 UTC D−1, any forecast released after that gate is commercially inaccessible. Evaluating against later forecasts introduces fatal look-ahead bias.
+- **Decision Window**: Northstar Wind Desk freezes the eligible forecast horizon strictly at the selected gate (default: 11:00 UTC D−1), matching the information available to a trader at auction execution.
 
-The API is public and does not require a key. Source: [Elexon Insights Developer Portal](https://developer.data.elexon.co.uk/). The project uses only `FUELHH` filtered to `fuelType=WIND` and `WINDFOR`.
+---
 
-## Analysis
+## Key Features
 
-For delivery date D, forecasts with `publishTime` later than the chosen D−1 UTC gate are excluded. For every settlement period, the most recently published eligible forecast is paired with the FUELHH actual. The dashboard reports MAE, RMSE, WAPE, signed mean error (`forecast − actual`), absolute peak period error, and actual energy in MWh (MW × 0.5 hours).
+1. **Daily Day-Ahead View**:
+   - Interactive settlement period analysis across all 48 half-hourly periods for any target delivery date.
+   - Dynamic Decision Gate selector (defaulting to 11:00 UTC D−1).
+   - Side-by-side time series chart comparing actual generation (`FUELHH`) vs. gate-frozen forecast (`WINDFOR`).
+   - Core KPIs: Total Actual Generation (MWh), Day-Ahead MAE, RMSE, Signed System Bias, and Peak Period Imbalance.
 
-The day view and January summary use paired forecast/actual periods for error metrics. The month view also reports the number of expected settlement periods, actual periods, forecast periods, paired periods, and missing observations. Missing forecasts are excluded from error calculations and remain visible in coverage counts. Elexon values are displayed in MW; generation energy is shown as MWh. This prototype does not estimate demand, thermal procurement volume, or cash-out cost, since those require data outside the challenge scope.
+2. **January 2026 Portfolio View**:
+   - Macro performance assessment across the entire pilot month.
+   - Aggregate error benchmarks: Portfolio MAE, RMSE, and WAPE (Weighted Absolute Percentage Error).
+   - Transparent coverage accounting: Tracks expected (1,488), actual, forecast, and paired settlement periods without synthetic backfilling.
 
-The monthly endpoint is `GET /api/monthly-summary?gate=11:00`; the selected gate is applied consistently across all 31 delivery days.
+3. **Production API Architecture**:
+   - FastAPI backend with automated Pydantic schema validation.
+   - Local JSON caching layer to guard against third-party API rate limits and optimize response latency.
+   - Automated OpenAPI / Swagger documentation.
 
-## Deploy
+---
 
-The frontend is configured for Vercel from the `frontend/` project root. Set `VITE_API_URL` in the Vercel project settings to the deployed backend origin, without a trailing slash. The Vercel configuration builds to `dist` and rewrites browser routes to the Vite entry point.
+## Technical Architecture & Tech Stack
 
-The root `render.yaml` is a Render Blueprint for the FastAPI backend. Create the service from that Blueprint, then use its public URL as Vercel's `VITE_API_URL`. The backend cache is on the service's local filesystem, which is ephemeral on Render; trigger **Sync Elexon** again after a service restart or redeploy. The same Docker image can be used on Heroku, with `PORT` supplied by the platform.
-
-## Configuration
-
-- `VITE_API_URL` — optional frontend API base URL for separate frontend/backend hosting. Leave empty for the included Docker Compose setup.
-- `ELEXON_API_BASE` — optional Elexon API base URL (defaults to `https://data.elexon.co.uk/bmrs/api/v1`).
-- `DATA_DIR` — optional backend cache directory (defaults to `backend/data`).
-
-## AI assistance
-
-OpenAI Codex and Gemini were used to assist with application design and implementation.
-
-## Deployment and video
-
-No hosted app URL, public GitHub repository, or demo video has been created in this workspace. Add the deployed application link here after deploying the Dockerized frontend and backend. The challenge asks for a public repository and an unlisted YouTube demo of no more than 10 minutes, with an initial customer overview and a technical walkthrough.
+```text
+├── backend/
+│   ├── app/
+│   │   ├── main.py            # FastAPI entry point, routing, and CORS
+│   │   ├── metrics.py         # Point-in-time forecast alignment & error math
+│   │   ├── elexon_client.py   # Elexon BMRS API client and parser
+│   │   └── models.py          # Pydantic schemas for daily/monthly responses
+│   ├── fetch_elexon.py        # CLI dataset hydration script
+│   ├── requirements.txt       # Python dependencies
+│   └── Dockerfile             # Multi-stage production container
+├── frontend/
+│   ├── src/
+│   │   ├── components/        # Charting, KPI cards, and gate controls
+│   │   ├── App.tsx            # Main operational cockpit view
+│   │   └── api.ts             # API client targeting VITE_API_URL
+│   ├── package.json
+│   └── vite.config.ts
+├── docker-compose.yml         # Local full-stack orchestration
+└── README.md
